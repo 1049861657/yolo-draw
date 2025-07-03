@@ -9,7 +9,9 @@ from .bbox_editor import BBoxEditorWidget
 from .ship_classifier import ShipClassifierWidget
 from .image_viewer import ImageViewerWidget
 from .model_settings_dialog import ModelSettingsDialog
-from .directory_history_manager import DirectoryHistoryManager
+from .path_settings_widget import PathSettingsWidget
+from .annotation_speed_tracker import AnnotationSpeedWidget, AnnotationSpeedTracker, AnnotationSpeedDisplay
+from .keyboard_shortcut_manager import KeyboardShortcutManager, ShortcutAction
 
 __all__ = [
     'CustomGraphicsView',
@@ -18,5 +20,10 @@ __all__ = [
     'ShipClassifierWidget',
     'ImageViewerWidget',
     'ModelSettingsDialog',
-    'DirectoryHistoryManager'
+    'PathSettingsWidget',
+    'AnnotationSpeedWidget',
+    'AnnotationSpeedTracker',
+    'AnnotationSpeedDisplay',
+    'KeyboardShortcutManager',
+    'ShortcutAction'
 ] 
