@@ -733,7 +733,11 @@ class ImageViewerWidget(QGroupBox):
         if scale_factor < 0.5:
             scale_factor = 0.5
         
-        for prediction in self.yolo_predictions:
+        # 预处理标签信息和位置
+        label_info_list = []
+        occupied_regions = []  # 记录已占用的标签区域，避免重叠
+        
+        for i, prediction in enumerate(self.yolo_predictions):
             class_id, center_x, center_y, width, height, confidence = prediction
             class_id_int = int(class_id)
             
@@ -758,20 +762,7 @@ class ImageViewerWidget(QGroupBox):
             scaled_x2 = x2 * scale_x
             scaled_y2 = y2 * scale_y
             
-            # 使用特殊颜色绘制预测框（橙色虚线）
-            prediction_color = QColor("#FF6B00")  # 橙色
-            
-            # 绘制预测边界框（虚线）
-            pen = QPen(prediction_color)
-            pen.setWidth(max(2, int(3 * scale_factor)))
-            pen.setStyle(Qt.PenStyle.DashLine)
-            painter.setPen(pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            
-            # 绘制边界框
-            painter.drawRect(QRectF(scaled_x1, scaled_y1, scaled_x2 - scaled_x1, scaled_y2 - scaled_y1))
-            
-            # 绘制预测标签和置信度
+            # 准备标签文本和样式
             ship_type = self.ship_types.get(str(class_id_int), f"类别{class_id_int}")
             label_text = f"{ship_type} {confidence:.2f}"
             
@@ -780,7 +771,6 @@ class ImageViewerWidget(QGroupBox):
             font = QFont()
             font.setPointSizeF(max(9, int(10 * scale_factor)))
             font.setBold(True)
-            painter.setFont(font)
             
             # 计算文本尺寸
             font_metrics = QFontMetrics(font)
@@ -792,44 +782,264 @@ class ImageViewerWidget(QGroupBox):
             label_width = text_width + padding * 2
             label_height = text_height + padding
             
-            # 计算标签位置
-            label_x = scaled_x1
-            label_y = scaled_y1 - label_height - padding
-            
-            # 边界检查
-            if label_y < 0:
-                label_y = scaled_y2 + padding
-            if label_x + label_width > pixmap_width:
-                label_x = pixmap_width - label_width
-            if label_x < 0:
-                label_x = 0
-            
-            # 创建标签矩形
-            label_rect = QRectF(label_x, label_y, label_width, label_height)
-            
-            # 创建半透明背景色
-            bg_color = QColor(prediction_color)
-            bg_color.setAlpha(200)
-            
-            # 绘制标签背景
-            corner_radius = max(3, int(4 * scale_factor))
-            painter.setPen(Qt.PenStyle.NoPen)
-            from PySide6.QtGui import QBrush
-            painter.setBrush(QBrush(bg_color))
-            painter.drawRoundedRect(label_rect, corner_radius, corner_radius)
-            
-            # 绘制文字
-            painter.setPen(QColor("white"))
-            text_rect = QRectF(
-                label_x + padding, 
-                label_y, 
-                label_width - padding * 2, 
-                label_height
+            # 智能计算标签位置，避免重叠
+            label_x, label_y = self._calculate_smart_label_position(
+                scaled_x1, scaled_y1, scaled_x2, scaled_y2,
+                label_width, label_height, padding,
+                pixmap_width, pixmap_height, occupied_regions
             )
-            painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, label_text)
+            
+            # 记录此标签占用的区域
+            label_rect = QRectF(label_x, label_y, label_width, label_height)
+            occupied_regions.append(label_rect)
+            
+            # 存储标签信息
+            label_info_list.append({
+                'bbox': (scaled_x1, scaled_y1, scaled_x2, scaled_y2),
+                'label_rect': label_rect,
+                'label_text': label_text,
+                'font': font,
+                'padding': padding,
+                'prediction_color': QColor("#FF6B00"),
+                'scale_factor': scale_factor
+            })
+        
+        # 先绘制所有边界框
+        for label_info in label_info_list:
+            scaled_x1, scaled_y1, scaled_x2, scaled_y2 = label_info['bbox']
+            prediction_color = label_info['prediction_color']
+            scale_factor = label_info['scale_factor']
+            
+            # 绘制预测边界框（虚线）
+            pen = QPen(prediction_color)
+            pen.setWidth(max(1, int(2 * scale_factor)))
+            pen.setStyle(Qt.PenStyle.DashLine)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            
+            # 绘制边界框
+            painter.drawRect(QRectF(scaled_x1, scaled_y1, scaled_x2 - scaled_x1, scaled_y2 - scaled_y1))
+        
+        # 再绘制所有标签（确保标签在边界框之上）
+        for label_info in label_info_list:
+            self._draw_prediction_label(painter, label_info)
         
         painter.end()
         return result
+    
+    def _calculate_smart_label_position(self, bbox_x1, bbox_y1, bbox_x2, bbox_y2, 
+                                       label_width, label_height, padding,
+                                       pixmap_width, pixmap_height, occupied_regions):
+        """智能计算标签位置，避免与其他标签重叠
+        
+        Args:
+            bbox_x1, bbox_y1, bbox_x2, bbox_y2: 边界框坐标
+            label_width, label_height: 标签尺寸
+            padding: 内边距
+            pixmap_width, pixmap_height: 图像尺寸
+            occupied_regions: 已占用的标签区域列表
+            
+        Returns:
+            tuple: (label_x, label_y) 标签位置
+        """
+        # 候选位置列表：按优先级排序
+        # 0: 上方中央, 1: 下方中央, 2: 左上, 3: 右上, 4: 左下, 5: 右下, 6: 左侧, 7: 右侧
+        candidate_positions = [
+            # 上方中央（默认位置）
+            (bbox_x1 + (bbox_x2 - bbox_x1 - label_width) / 2, bbox_y1 - label_height - padding),
+            # 下方中央
+            (bbox_x1 + (bbox_x2 - bbox_x1 - label_width) / 2, bbox_y2 + padding),
+            # 左上角
+            (bbox_x1, bbox_y1 - label_height - padding),
+            # 右上角
+            (bbox_x2 - label_width, bbox_y1 - label_height - padding),
+            # 左下角
+            (bbox_x1, bbox_y2 + padding),
+            # 右下角
+            (bbox_x2 - label_width, bbox_y2 + padding),
+            # 左侧中央
+            (bbox_x1 - label_width - padding, bbox_y1 + (bbox_y2 - bbox_y1 - label_height) / 2),
+            # 右侧中央
+            (bbox_x2 + padding, bbox_y1 + (bbox_y2 - bbox_y1 - label_height) / 2),
+        ]
+        
+        # 尝试每个候选位置
+        for label_x, label_y in candidate_positions:
+            # 边界检查和调整
+            label_x = max(0, min(pixmap_width - label_width, label_x))
+            label_y = max(0, min(pixmap_height - label_height, label_y))
+            
+            # 创建候选标签矩形
+            candidate_rect = QRectF(label_x, label_y, label_width, label_height)
+            
+            # 检查是否与已有标签重叠
+            overlapping = False
+            for occupied_rect in occupied_regions:
+                if candidate_rect.intersects(occupied_rect):
+                    # 计算重叠面积比例
+                    intersection = candidate_rect.intersected(occupied_rect)
+                    overlap_ratio = (intersection.width() * intersection.height()) / (label_width * label_height)
+                    
+                    # 如果重叠面积超过30%，认为是重叠
+                    if overlap_ratio > 0.3:
+                        overlapping = True
+                        break
+            
+            # 如果没有重叠，使用这个位置
+            if not overlapping:
+                return label_x, label_y
+        
+        # 如果所有候选位置都重叠，尝试偏移策略
+        return self._find_offset_position(
+            bbox_x1, bbox_y1, bbox_x2, bbox_y2,
+            label_width, label_height, padding,
+            pixmap_width, pixmap_height, occupied_regions
+        )
+    
+    def _find_offset_position(self, bbox_x1, bbox_y1, bbox_x2, bbox_y2,
+                             label_width, label_height, padding,
+                             pixmap_width, pixmap_height, occupied_regions):
+        """当标准位置都重叠时，寻找偏移位置
+        
+        Returns:
+            tuple: (label_x, label_y) 标签位置
+        """
+        # 使用默认位置（上方中央）作为起点
+        base_x = bbox_x1 + (bbox_x2 - bbox_x1 - label_width) / 2
+        base_y = bbox_y1 - label_height - padding
+        
+        # 如果上方越界，使用下方
+        if base_y < 0:
+            base_y = bbox_y2 + padding
+        
+        # 尝试垂直偏移
+        offset_step = label_height + padding
+        max_attempts = 5
+        
+        for attempt in range(max_attempts):
+            # 向上偏移
+            test_y = base_y - (attempt + 1) * offset_step
+            if test_y >= 0:
+                test_x = max(0, min(pixmap_width - label_width, base_x))
+                candidate_rect = QRectF(test_x, test_y, label_width, label_height)
+                
+                overlapping = False
+                for occupied_rect in occupied_regions:
+                    if candidate_rect.intersects(occupied_rect):
+                        intersection = candidate_rect.intersected(occupied_rect)
+                        overlap_ratio = (intersection.width() * intersection.height()) / (label_width * label_height)
+                        if overlap_ratio > 0.2:  # 降低重叠阈值
+                            overlapping = True
+                            break
+                
+                if not overlapping:
+                    return test_x, test_y
+            
+            # 向下偏移
+            test_y = base_y + (attempt + 1) * offset_step
+            if test_y + label_height <= pixmap_height:
+                test_x = max(0, min(pixmap_width - label_width, base_x))
+                candidate_rect = QRectF(test_x, test_y, label_width, label_height)
+                
+                overlapping = False
+                for occupied_rect in occupied_regions:
+                    if candidate_rect.intersects(occupied_rect):
+                        intersection = candidate_rect.intersected(occupied_rect)
+                        overlap_ratio = (intersection.width() * intersection.height()) / (label_width * label_height)
+                        if overlap_ratio > 0.2:
+                            overlapping = True
+                            break
+                
+                if not overlapping:
+                    return test_x, test_y
+        
+        # 如果垂直偏移也不行，尝试水平偏移
+        for attempt in range(max_attempts):
+            # 向左偏移
+            test_x = base_x - (attempt + 1) * (label_width + padding)
+            if test_x >= 0:
+                test_y = max(0, min(pixmap_height - label_height, base_y))
+                candidate_rect = QRectF(test_x, test_y, label_width, label_height)
+                
+                overlapping = False
+                for occupied_rect in occupied_regions:
+                    if candidate_rect.intersects(occupied_rect):
+                        intersection = candidate_rect.intersected(occupied_rect)
+                        overlap_ratio = (intersection.width() * intersection.height()) / (label_width * label_height)
+                        if overlap_ratio > 0.2:
+                            overlapping = True
+                            break
+                
+                if not overlapping:
+                    return test_x, test_y
+            
+            # 向右偏移
+            test_x = base_x + (attempt + 1) * (label_width + padding)
+            if test_x + label_width <= pixmap_width:
+                test_y = max(0, min(pixmap_height - label_height, base_y))
+                candidate_rect = QRectF(test_x, test_y, label_width, label_height)
+                
+                overlapping = False
+                for occupied_rect in occupied_regions:
+                    if candidate_rect.intersects(occupied_rect):
+                        intersection = candidate_rect.intersected(occupied_rect)
+                        overlap_ratio = (intersection.width() * intersection.height()) / (label_width * label_height)
+                        if overlap_ratio > 0.2:
+                            overlapping = True
+                            break
+                
+                if not overlapping:
+                    return test_x, test_y
+        
+        # 最终回退：使用边界限制的基础位置
+        final_x = max(0, min(pixmap_width - label_width, base_x))
+        final_y = max(0, min(pixmap_height - label_height, base_y))
+        return final_x, final_y
+    
+    def _draw_prediction_label(self, painter, label_info):
+        """绘制单个预测标签
+        
+        Args:
+            painter: QPainter对象
+            label_info: 标签信息字典
+        """
+        label_rect = label_info['label_rect']
+        label_text = label_info['label_text']
+        font = label_info['font']
+        padding = label_info['padding']
+        prediction_color = label_info['prediction_color']
+        scale_factor = label_info['scale_factor']
+        
+        # 设置字体
+        painter.setFont(font)
+        
+        # 创建半透明背景色
+        bg_color = QColor(prediction_color)
+        bg_color.setAlpha(200)
+        
+        # 绘制标签背景
+        corner_radius = max(3, int(4 * scale_factor))
+        painter.setPen(Qt.PenStyle.NoPen)
+        from PySide6.QtGui import QBrush
+        painter.setBrush(QBrush(bg_color))
+        painter.drawRoundedRect(label_rect, corner_radius, corner_radius)
+        
+        # 添加白色边框增强可见性
+        border_pen = QPen(QColor("white"))
+        border_pen.setWidth(max(1, int(1 * scale_factor)))
+        painter.setPen(border_pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(label_rect, corner_radius, corner_radius)
+        
+        # 绘制文字
+        painter.setPen(QColor("white"))
+        text_rect = QRectF(
+            label_rect.x() + padding,
+            label_rect.y(),
+            label_rect.width() - padding * 2,
+            label_rect.height()
+        )
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, label_text)
     
     def adjust_image_to_view(self):
         """根据当前视图大小调整图像显示"""
@@ -1145,7 +1355,7 @@ class ImageViewerWidget(QGroupBox):
         
         # 设置绘制样式（虚线）
         pen = QPen(QColor("#FF0000"))  # 红色
-        pen.setWidth(3)
+        pen.setWidth(2)
         pen.setStyle(Qt.PenStyle.DashLine)
         painter.setPen(pen)
         

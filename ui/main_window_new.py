@@ -20,7 +20,8 @@ from models.yolo_label import YoloLabel
 from utils import file_utils
 from utils.yolo_model_manager import YoloModelManager
 from .components import (
-    ImageListWidget, BBoxEditorWidget, ShipClassifierWidget, ImageViewerWidget, ModelSettingsDialog
+    ImageListWidget, BBoxEditorWidget, ShipClassifierWidget, ImageViewerWidget, ModelSettingsDialog,
+    DirectoryHistoryManager
 )
 
 
@@ -41,8 +42,8 @@ class MainWindow(QMainWindow):
         # 初始化标注速度统计
         self._init_annotation_speed_tracking()
         
-        # 初始化目录历史记录
-        self._init_directory_history()
+        # 初始化目录历史记录管理器
+        self.directory_history_manager = DirectoryHistoryManager(self)
         
         # 创建UI组件
         self._init_ui_components()
@@ -86,59 +87,7 @@ class MainWindow(QMainWindow):
         self.speed_update_timer.timeout.connect(self._update_speed_display)
         self.speed_update_timer.start(1000)  # 每秒更新一次
     
-    def _init_directory_history(self):
-        """初始化目录历史记录功能"""
-        # 使用QSettings来持久化存储历史记录
-        self.settings = QSettings("YoloAnnotationTool", "DirectoryHistory")
-        
-        # 最大历史记录数量
-        self.max_history_count = 5
-    
-    def _load_directory_history(self, key):
-        """加载目录历史记录"""
-        history = self.settings.value(key, [])
-        if isinstance(history, str):
-            # 兼容旧版本，如果是字符串则转换为列表
-            history = [history] if history else []
-        elif not isinstance(history, list):
-            history = []
-        return history
-    
-    def _save_directory_history(self, key, history):
-        """保存目录历史记录"""
-        # 确保历史记录不超过最大数量
-        if len(history) > self.max_history_count:
-            history = history[:self.max_history_count]
-        
-        self.settings.setValue(key, history)
-        self.settings.sync()  # 立即同步到磁盘
-    
-    def _add_to_history(self, combo_box, directory, key):
-        """添加目录到历史记录"""
-        if not directory or not os.path.exists(directory):
-            return
-        
-        # 获取当前历史记录
-        current_items = [combo_box.itemText(i) for i in range(combo_box.count())]
-        
-        # 如果目录已存在，先移除
-        if directory in current_items:
-            current_items.remove(directory)
-        
-        # 添加到列表开头
-        current_items.insert(0, directory)
-        
-        # 限制历史记录数量
-        if len(current_items) > self.max_history_count:
-            current_items = current_items[:self.max_history_count]
-        
-        # 更新下拉框
-        combo_box.clear()
-        combo_box.addItems(current_items)
-        combo_box.setCurrentText(directory)
-        
-        # 保存到设置
-        self._save_directory_history(key, current_items)
+
     
     def _on_source_dir_changed(self, text):
         """处理源目录下拉框文本变化"""
@@ -156,52 +105,32 @@ class MainWindow(QMainWindow):
         """处理目标目录下拉框文本变化"""
         self.target_dir = text.strip()
     
+    def _on_source_dir_activated(self, index):
+        """处理源目录下拉框用户主动选择事件"""
+        selected_dir = self.source_dir_combo.itemText(index)
+        if selected_dir and os.path.exists(selected_dir):
+            # 将用户选择的目录添加到历史记录（移到最前面）
+            self.directory_history_manager.add_to_history(self.source_dir_combo, selected_dir, "source_directories")
+    
+    def _on_target_dir_activated(self, index):
+        """处理目标目录下拉框用户主动选择事件"""
+        selected_dir = self.target_dir_combo.itemText(index)
+        if selected_dir and os.path.exists(selected_dir):
+            # 将用户选择的目录添加到历史记录（移到最前面）
+            self.directory_history_manager.add_to_history(self.target_dir_combo, selected_dir, "target_directories")
+    
     def _clear_source_history(self):
         """清除源目录历史记录"""
-        reply = QMessageBox.question(
-            self, "确认清除", 
-            "确定要清除所有源目录历史记录吗？",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-        
-        if reply == QMessageBox.StandardButton.Yes:
-            # 保存当前选中的项
-            current_text = self.source_dir_combo.currentText()
-            
-            # 清除下拉框和历史记录
-            self.source_dir_combo.clear()
-            self._save_directory_history("source_directories", [])
-            
-            # 如果有当前文本，重新添加
-            if current_text:
-                self.source_dir_combo.addItem(current_text)
-                self.source_dir_combo.setCurrentText(current_text)
-            
+        if self.directory_history_manager.clear_history(
+            self.source_dir_combo, "source_directories", "源目录", self
+        ):
             self.status_bar.showMessage("已清除源目录历史记录")
     
     def _clear_target_history(self):
         """清除目标目录历史记录"""
-        reply = QMessageBox.question(
-            self, "确认清除", 
-            "确定要清除所有目标目录历史记录吗？",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
-        
-        if reply == QMessageBox.StandardButton.Yes:
-            # 保存当前选中的项
-            current_text = self.target_dir_combo.currentText()
-            
-            # 清除下拉框和历史记录
-            self.target_dir_combo.clear()
-            self._save_directory_history("target_directories", [])
-            
-            # 如果有当前文本，重新添加
-            if current_text:
-                self.target_dir_combo.addItem(current_text)
-                self.target_dir_combo.setCurrentText(current_text)
-            
+        if self.directory_history_manager.clear_history(
+            self.target_dir_combo, "target_directories", "目标目录", self
+        ):
             self.status_bar.showMessage("已清除目标目录历史记录")
     
     def _init_ui_components(self):
@@ -306,18 +235,11 @@ class MainWindow(QMainWindow):
         
         # 使用可编辑的下拉框
         self.source_dir_combo = QComboBox()
-        self.source_dir_combo.setEditable(True)
-        self.source_dir_combo.setSizePolicy(self.source_dir_combo.sizePolicy().horizontalPolicy(), 
-                                           self.source_dir_combo.sizePolicy().verticalPolicy())
-        self.source_dir_combo.setMinimumWidth(300)
-        
-        # 加载历史记录
-        source_history = self._load_directory_history("source_directories")
-        if source_history:
-            self.source_dir_combo.addItems(source_history)
+        self.directory_history_manager.setup_combo_box_with_history(self.source_dir_combo, "source_directories")
         
         # 连接信号
         self.source_dir_combo.currentTextChanged.connect(self._on_source_dir_changed)
+        self.source_dir_combo.activated.connect(self._on_source_dir_activated)
         
         # 清除历史按钮（小按钮）
         clear_source_btn = QPushButton("×")
@@ -357,18 +279,11 @@ class MainWindow(QMainWindow):
         
         # 使用可编辑的下拉框
         self.target_dir_combo = QComboBox()
-        self.target_dir_combo.setEditable(True)
-        self.target_dir_combo.setSizePolicy(self.target_dir_combo.sizePolicy().horizontalPolicy(), 
-                                           self.target_dir_combo.sizePolicy().verticalPolicy())
-        self.target_dir_combo.setMinimumWidth(300)
-        
-        # 加载历史记录
-        target_history = self._load_directory_history("target_directories")
-        if target_history:
-            self.target_dir_combo.addItems(target_history)
+        self.directory_history_manager.setup_combo_box_with_history(self.target_dir_combo, "target_directories")
         
         # 连接信号
         self.target_dir_combo.currentTextChanged.connect(self._on_target_dir_changed)
+        self.target_dir_combo.activated.connect(self._on_target_dir_activated)
         
         # 清除历史按钮（小按钮）
         clear_target_btn = QPushButton("×")
@@ -497,6 +412,21 @@ class MainWindow(QMainWindow):
             shortcut.activated.connect(lambda idx=i-1: self.on_number_shortcut_activated(idx))
             shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
             self.number_shortcuts.append(shortcut)
+        
+        # 小键盘*键快捷键，用于触发YOLO预测
+        self.yolo_predict_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Asterisk), self)
+        self.yolo_predict_shortcut.activated.connect(self.on_yolo_predict_shortcut_activated)
+        self.yolo_predict_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        
+        # 小键盘+键快捷键，用于接受所有YOLO预测结果
+        self.accept_predictions_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Plus), self)
+        self.accept_predictions_shortcut.activated.connect(self.on_accept_predictions_shortcut_activated)
+        self.accept_predictions_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        
+        # 小键盘-键快捷键，用于拒绝/删除所有YOLO预测结果
+        self.reject_predictions_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Minus), self)
+        self.reject_predictions_shortcut.activated.connect(self.on_reject_predictions_shortcut_activated)
+        self.reject_predictions_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
     
     def _set_default_paths(self):
         """设置默认路径"""
@@ -506,7 +436,7 @@ class MainWindow(QMainWindow):
             self.source_dir_combo.addItem(self.source_dir)
             self.source_dir_combo.setCurrentText(self.source_dir)
             # 保存到历史记录
-            self._add_to_history(self.source_dir_combo, self.source_dir, "source_directories")
+            self.directory_history_manager.add_to_history(self.source_dir_combo, self.source_dir, "source_directories")
         elif self.source_dir_combo.count() > 0:
             # 如果有历史记录，使用第一个作为当前选择
             self.source_dir = self.source_dir_combo.itemText(0)
@@ -517,7 +447,7 @@ class MainWindow(QMainWindow):
             self.target_dir_combo.addItem(self.target_dir)
             self.target_dir_combo.setCurrentText(self.target_dir)
             # 保存到历史记录
-            self._add_to_history(self.target_dir_combo, self.target_dir, "target_directories")
+            self.directory_history_manager.add_to_history(self.target_dir_combo, self.target_dir, "target_directories")
         elif self.target_dir_combo.count() > 0:
             # 如果有历史记录，使用第一个作为当前选择
             self.target_dir = self.target_dir_combo.itemText(0)
@@ -575,7 +505,7 @@ class MainWindow(QMainWindow):
             self.source_dir = directory
             
             # 添加到历史记录和下拉框
-            self._add_to_history(self.source_dir_combo, directory, "source_directories")
+            self.directory_history_manager.add_to_history(self.source_dir_combo, directory, "source_directories")
             
             # 自动检测images和labels子文件夹
             images_dir, labels_dir = self.get_images_and_labels_dirs(directory)
@@ -606,7 +536,7 @@ class MainWindow(QMainWindow):
             self.target_dir = directory
             
             # 添加到历史记录和下拉框
-            self._add_to_history(self.target_dir_combo, directory, "target_directories")
+            self.directory_history_manager.add_to_history(self.target_dir_combo, directory, "target_directories")
     
     def load_images(self):
         """加载图像"""
@@ -1819,6 +1749,52 @@ class MainWindow(QMainWindow):
         
         # 显示状态栏消息
         self.status_bar.showMessage(f"已切换到模型: {model_name}")
+    
+    def on_yolo_predict_shortcut_activated(self):
+        """处理小键盘*键快捷键，触发YOLO预测"""
+        if not self.image_viewer_widget.current_image:
+            QMessageBox.warning(self, "警告", "请先选择一个图像")
+            return
+        
+        # 调用图像查看器的YOLO预测功能
+        self.image_viewer_widget.perform_yolo_prediction()
+        self.status_bar.showMessage("【YOLO预测】正在执行预测...")
+    
+    def on_accept_predictions_shortcut_activated(self):
+        """处理小键盘+键快捷键，接受所有YOLO预测结果"""
+        if not self.image_viewer_widget.current_image:
+            return
+        
+        # 检查是否有预测结果
+        if not hasattr(self.image_viewer_widget, 'yolo_predictions') or not self.image_viewer_widget.yolo_predictions:
+            self.status_bar.showMessage("没有可接受的预测结果")
+            return
+        
+        # 先清除当前图像的所有已有标注框（模拟T键功能）
+        if self.image_viewer_widget.current_yolo_label:
+            original_label_count = len(self.image_viewer_widget.current_yolo_label.get_labels())
+            if original_label_count > 0:
+                self.clear_all_labels()  # 调用T键对应的功能
+        
+        # 调用图像查看器的接受所有预测功能
+        prediction_count = len(self.image_viewer_widget.yolo_predictions)
+        self.image_viewer_widget.accept_all_predictions()
+        self.status_bar.showMessage(f"【预测接受】已清除原有标注框并接受 {prediction_count} 个预测结果")
+    
+    def on_reject_predictions_shortcut_activated(self):
+        """处理小键盘-键快捷键，拒绝/删除所有YOLO预测结果"""
+        if not self.image_viewer_widget.current_image:
+            return
+        
+        # 检查是否有预测结果
+        if not hasattr(self.image_viewer_widget, 'yolo_predictions') or not self.image_viewer_widget.yolo_predictions:
+            self.status_bar.showMessage("没有可拒绝的预测结果")
+            return
+        
+        # 调用图像查看器的重置预测功能
+        prediction_count = len(self.image_viewer_widget.yolo_predictions)
+        self.image_viewer_widget.reset_predictions()
+        self.status_bar.showMessage(f"【预测拒绝】已删除 {prediction_count} 个预测结果")
 
     def run(self):
         """运行应用程序"""

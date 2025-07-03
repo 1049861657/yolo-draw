@@ -9,6 +9,7 @@ from .bbox_editor import BBoxEditorWidget
 from .ship_classifier import ShipClassifierWidget
 from .image_viewer import ImageViewerWidget
 from .model_settings_dialog import ModelSettingsDialog
+from .directory_history_manager import DirectoryHistoryManager
 
 __all__ = [
     'CustomGraphicsView',
@@ -16,5 +17,6 @@ __all__ = [
     'BBoxEditorWidget',
     'ShipClassifierWidget',
     'ImageViewerWidget',
-    'ModelSettingsDialog'
+    'ModelSettingsDialog',
+    'DirectoryHistoryManager'
 ] 

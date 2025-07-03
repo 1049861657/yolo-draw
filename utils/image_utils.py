@@ -234,7 +234,7 @@ def draw_boxes_qt(pixmap: QPixmap, labels: List[List[float]], ship_types: dict,
         painter.setBrush(Qt.BrushStyle.NoBrush)
         
         # 设置画笔，根据图像大小调整边框宽度
-        pen_width = max(1, int(3 * scale_factor))
+        pen_width = max(1, int(2 * scale_factor))
         pen = QPen(qt_color)
         pen.setWidth(pen_width)
         painter.setPen(pen)
@@ -325,7 +325,7 @@ def draw_boxes_qt(pixmap: QPixmap, labels: List[List[float]], ship_types: dict,
         painter.drawRect(QRectF(scaled_x1 - corner_size/2, scaled_y2 - corner_size/2, corner_size, corner_size))
         
         # 在角点上添加边框，提高可见性
-        painter.setPen(QPen(qt_color, max(1, int(1.5 * scale_factor))))  # 动态调整边框宽度
+        painter.setPen(QPen(qt_color, max(1, int(1 * scale_factor))))  # 动态调整边框宽度
         
         # 左上角
         painter.drawRect(QRectF(scaled_x1 - corner_size/2, scaled_y1 - corner_size/2, corner_size, corner_size))
@@ -578,7 +578,7 @@ def highlight_selected_box(pixmap: QPixmap, label: List[float], bbox_index: int,
     # 获取颜色索引，但使用更突出的颜色显示选中状态
     select_color = QColor("yellow")  # 高亮色
     pen = QPen(select_color)
-    pen.setWidth(3)  # 加粗边框宽度
+    pen.setWidth(2)  # 加粗边框宽度
     pen.setStyle(Qt.PenStyle.DashLine)  # 使用虚线样式
     painter.setPen(pen)
     
