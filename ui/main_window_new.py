@@ -60,9 +60,6 @@ class MainWindow(QMainWindow):
         self.ship_types = config.get_ship_types()
     
 
-    
-
-    
     def _on_source_dir_changed(self, source_dir):
         """处理源目录改变"""
         self.source_dir = source_dir

@@ -1585,7 +1585,7 @@ class ImageViewerWidget(QGroupBox):
         y2 = max(start_y, current_y)
         
         # 确保有一定大小
-        if (x2 - x1) < 10 or (y2 - y1) < 10:
+        if (x2 - x1) < 5 or (y2 - y1) < 5:
             # 标注框太小，取消创建
             pass
         else:

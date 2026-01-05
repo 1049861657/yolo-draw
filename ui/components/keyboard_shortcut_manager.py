@@ -17,9 +17,9 @@ class ShortcutAction(Enum):
     CLEAR_LABELS = "clear_labels"            # T键：清空标签
     BATCH_DISCARD = "batch_discard"          # U键：批量丢弃
     SELECT_BBOX = "select_bbox"              # 1-9键：选择标注框
-    YOLO_PREDICT = "yolo_predict"            # *键：YOLO预测
-    ACCEPT_PREDICTIONS = "accept_predictions" # +键：接受预测
-    REJECT_PREDICTIONS = "reject_predictions" # -键：拒绝预测
+    YOLO_PREDICT = "yolo_predict"            # P键：YOLO预测
+    ACCEPT_PREDICTIONS = "accept_predictions" # ]键：接受预测
+    REJECT_PREDICTIONS = "reject_predictions" # [键：拒绝预测
 
 
 class KeyboardShortcutManager(QObject):
@@ -48,9 +48,9 @@ class KeyboardShortcutManager(QObject):
             (Qt.Key.Key_S, ShortcutAction.NAVIGATE_DOWN, "向下导航"),
             (Qt.Key.Key_T, ShortcutAction.CLEAR_LABELS, "清空标签"),
             (Qt.Key.Key_U, ShortcutAction.BATCH_DISCARD, "批量丢弃"),
-            (Qt.Key.Key_Asterisk, ShortcutAction.YOLO_PREDICT, "YOLO预测"),
-            (Qt.Key.Key_Plus, ShortcutAction.ACCEPT_PREDICTIONS, "接受预测"),
-            (Qt.Key.Key_Minus, ShortcutAction.REJECT_PREDICTIONS, "拒绝预测"),
+            (Qt.Key.Key_P, ShortcutAction.YOLO_PREDICT, "YOLO预测"),
+            (Qt.Key.Key_BracketRight,ShortcutAction.ACCEPT_PREDICTIONS, "接受预测"),
+            (Qt.Key.Key_BracketLeft, ShortcutAction.REJECT_PREDICTIONS, "拒绝预测"),
         ]
         
         # 创建基本快捷键
@@ -129,7 +129,7 @@ class KeyboardShortcutManager(QObject):
             "T": "清空标签",
             "U": "批量丢弃",
             "1-9": "选择标注框",
-            "*": "YOLO预测",
-            "+": "接受预测",
-            "-": "拒绝预测"
+            "P": "YOLO预测",
+            "]": "接受预测",
+            "[": "拒绝预测"
         } 
